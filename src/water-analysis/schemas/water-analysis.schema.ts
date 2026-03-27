@@ -19,12 +19,12 @@ export class WaterAnalysis {
 
   @Prop({ type: Object, required: true })
   parameters: {
-    ph: { value: number; status: string; description: string };
-    turbidity: { value: number; status: string; description: string };
-    algaeLevel: { value: number; status: string; description: string };
-    bacteriaCount: { value: number; status: string; description: string };
-    temperature: { value: number; status: string; description: string };
-    contaminationRisk: { value: number; status: string; description: string };
+    foamCoverage: { value: number; status: string; description: string };
+    algaeDensity: { value: number; status: string; description: string };
+    shorelineResidue: { value: number; status: string; description: string };
+    waterDiscoloration: { value: number; status: string; description: string };
+    stagnationIndex: { value: number; status: string; description: string };
+    surfaceVolatility: { value: number; status: string; description: string };
   };
 
   @Prop({ type: [String], default: [] })
@@ -38,6 +38,24 @@ export class WaterAnalysis {
 
   @Prop({ type: [String], default: [] })
   potentialContaminants: string[];
+
+  @Prop({ default: 'watch' })
+  frothStage: string;
+
+  @Prop({ default: 48 })
+  estimatedTimeToFrothHours: number;
+
+  @Prop({ default: '1-2 days' })
+  estimatedTimeToFrothLabel: string;
+
+  @Prop({ default: 65 })
+  frothConfidence: number;
+
+  @Prop({ default: 20 })
+  estimatedFrothCoveragePercent: number;
+
+  @Prop({ type: [String], default: [] })
+  keyDrivers: string[];
 
   @Prop({ default: '' })
   location: string;

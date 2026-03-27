@@ -2,45 +2,35 @@ import { Injectable, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
 
+type RiskStatus = "safe" | "warning" | "unsafe";
+
+interface FrothIndicator {
+  value: number;
+  status: RiskStatus;
+  description: string;
+}
+
 export interface WaterAnalysisResult {
   overallSafetyScore: number;
-  safetyStatus: "safe" | "warning" | "unsafe";
+  safetyStatus: RiskStatus;
   parameters: {
-    ph: {
-      value: number;
-      status: "safe" | "warning" | "unsafe";
-      description: string;
-    };
-    turbidity: {
-      value: number;
-      status: "safe" | "warning" | "unsafe";
-      description: string;
-    };
-    algaeLevel: {
-      value: number;
-      status: "safe" | "warning" | "unsafe";
-      description: string;
-    };
-    bacteriaCount: {
-      value: number;
-      status: "safe" | "warning" | "unsafe";
-      description: string;
-    };
-    temperature: {
-      value: number;
-      status: "safe" | "warning" | "unsafe";
-      description: string;
-    };
-    contaminationRisk: {
-      value: number;
-      status: "safe" | "warning" | "unsafe";
-      description: string;
-    };
+    foamCoverage: FrothIndicator;
+    algaeDensity: FrothIndicator;
+    shorelineResidue: FrothIndicator;
+    waterDiscoloration: FrothIndicator;
+    stagnationIndex: FrothIndicator;
+    surfaceVolatility: FrothIndicator;
   };
   recommendations: string[];
   detailedAnalysis: string;
   waterType: string;
   potentialContaminants: string[];
+  frothStage: "stable" | "watch" | "forming" | "imminent";
+  estimatedTimeToFrothHours: number;
+  estimatedTimeToFrothLabel: string;
+  frothConfidence: number;
+  estimatedFrothCoveragePercent: number;
+  keyDrivers: string[];
 }
 
 @Injectable()
@@ -54,7 +44,6 @@ export class GeminiService implements OnModuleInit {
     const apiKey = this.configService.get<string>("GEMINI_API_KEY");
     if (apiKey && apiKey !== "your-gemini-api-key-here") {
       this.genAI = new GoogleGenerativeAI(apiKey);
-      // Using gemini-1.5-flash - free tier model with vision capabilities
       this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     }
   }
@@ -62,176 +51,261 @@ export class GeminiService implements OnModuleInit {
   async analyzeWaterImage(
     imageBase64: string,
     mimeType: string,
+    context?: { location?: string; notes?: string },
   ): Promise<WaterAnalysisResult> {
-    // Check if Gemini API is configured
     if (!this.model) {
-      return this.generateMockAnalysis();
+      return this.generateMockAnalysis(context);
     }
 
     try {
-      const prompt = `You are an expert water quality analyst. Analyze this water sample image and provide a detailed water safety analysis.
+      const locationText = context?.location?.trim()
+        ? `Location context: ${context.location.trim()}`
+        : "Location context: not provided";
+      const notesText = context?.notes?.trim()
+        ? `Operator notes: ${context.notes.trim()}`
+        : "Operator notes: none";
 
-Return ONLY a valid JSON object (no markdown, no code blocks) with this exact structure:
+      const prompt = `You are AquaSense, an expert in forecasting lake frothing from satellite imagery.
+
+Your task is to analyze this image ONLY for one purpose: estimate whether this lake is likely to froth soon, and if so in how much time.
+
+Additional context:
+- ${locationText}
+- ${notesText}
+
+Important rules:
+- Treat this as a lake frothing forecast, not drinking-water safety.
+- Use only cautious visual inference from the image and supplied context.
+- If the image is not a lake or the evidence is weak, reduce confidence and explain that uncertainty.
+- estimatedTimeToFrothHours must be a non-negative number.
+- estimatedTimeToFrothLabel must be a concise human-readable label such as "Already frothing", "Within 6 hours", "1-2 days", or "More than 3 days".
+- frothConfidence must be a number from 0 to 100.
+- estimatedFrothCoveragePercent must be a number from 0 to 100 describing likely visible froth coverage at peak near-term event.
+- safetyStatus should map to frothing risk:
+  - safe = low risk / not expected soon
+  - warning = moderate risk / forming conditions
+  - unsafe = high risk / frothing imminent or already visible
+- frothStage must be one of: stable, watch, forming, imminent.
+- parameters should describe frothing-related indicators, not lab chemistry.
+
+Return ONLY a valid JSON object with this exact structure:
 {
-  "overallSafetyScore": <number 0-100>,
+  "overallSafetyScore": <number 0-100 where higher means higher frothing risk>,
   "safetyStatus": "<safe|warning|unsafe>",
   "parameters": {
-    "ph": { "value": <number 0-14>, "status": "<safe|warning|unsafe>", "description": "<brief description>" },
-    "turbidity": { "value": <number 0-100 NTU>, "status": "<safe|warning|unsafe>", "description": "<brief description>" },
-    "algaeLevel": { "value": <number 0-100 percentage>, "status": "<safe|warning|unsafe>", "description": "<brief description>" },
-    "bacteriaCount": { "value": <number CFU/mL estimate>, "status": "<safe|warning|unsafe>", "description": "<brief description>" },
-    "temperature": { "value": <number in Celsius>, "status": "<safe|warning|unsafe>", "description": "<brief description>" },
-    "contaminationRisk": { "value": <number 0-100 percentage>, "status": "<safe|warning|unsafe>", "description": "<brief description>" }
+    "foamCoverage": { "value": <number 0-100>, "status": "<safe|warning|unsafe>", "description": "<brief description>" },
+    "algaeDensity": { "value": <number 0-100>, "status": "<safe|warning|unsafe>", "description": "<brief description>" },
+    "shorelineResidue": { "value": <number 0-100>, "status": "<safe|warning|unsafe>", "description": "<brief description>" },
+    "waterDiscoloration": { "value": <number 0-100>, "status": "<safe|warning|unsafe>", "description": "<brief description>" },
+    "stagnationIndex": { "value": <number 0-100>, "status": "<safe|warning|unsafe>", "description": "<brief description>" },
+    "surfaceVolatility": { "value": <number 0-100>, "status": "<safe|warning|unsafe>", "description": "<brief description>" }
   },
   "recommendations": ["<recommendation 1>", "<recommendation 2>", "<recommendation 3>"],
-  "detailedAnalysis": "<2-3 sentence detailed analysis>",
-  "waterType": "<type of water body: river, lake, pond, ocean, etc.>",
-  "potentialContaminants": ["<contaminant 1>", "<contaminant 2>"]
+  "detailedAnalysis": "<2-4 sentence lake frothing forecast>",
+  "waterType": "<lake classification or 'unknown water body'>",
+  "potentialContaminants": ["<contaminant or driver 1>", "<contaminant or driver 2>"],
+  "frothStage": "<stable|watch|forming|imminent>",
+  "estimatedTimeToFrothHours": <number>,
+  "estimatedTimeToFrothLabel": "<short label>",
+  "frothConfidence": <number 0-100>,
+  "estimatedFrothCoveragePercent": <number 0-100>,
+  "keyDrivers": ["<driver 1>", "<driver 2>", "<driver 3>"]
 }
 
-Analyze the visual characteristics:
-- Water color and clarity
-- Visible particles or debris
-- Surface conditions
-- Signs of algae or biological growth
-- Environmental context
-
-Provide realistic estimates based on visual analysis. If the image is not of water, indicate low safety score and explain in the detailed analysis.`;
+Focus on visual signals like:
+- Existing foam streaks or pale surface mats
+- Green or brown discoloration associated with bloom activity
+- Shoreline accumulation bands
+- Patchiness, slicks, or stagnant surface texture
+- Near-shore concentration zones
+- Any visible sign that frothing has already started`;
 
       const result = await this.model.generateContent([
         prompt,
         {
           inlineData: {
             data: imageBase64,
-            mimeType: mimeType,
+            mimeType,
           },
         },
       ]);
 
       const response = await result.response;
       const text = response.text();
-
-      // Parse the JSON response
       const jsonMatch = text.match(/\{[\s\S]*\}/);
+
       if (jsonMatch) {
         const analysisResult = JSON.parse(jsonMatch[0]) as WaterAnalysisResult;
         return this.validateAndNormalizeResult(analysisResult);
       }
 
-      return this.generateMockAnalysis();
+      return this.generateMockAnalysis(context);
     } catch (error) {
       console.error("Gemini API error:", error);
-      return this.generateMockAnalysis();
+      return this.generateMockAnalysis(context);
     }
   }
 
   private validateAndNormalizeResult(
     result: WaterAnalysisResult,
   ): WaterAnalysisResult {
-    // Ensure all required fields exist with proper types
+    const defaultIndicator = (
+      value: number,
+      status: RiskStatus,
+      description: string,
+    ): FrothIndicator => ({
+      value: Math.min(100, Math.max(0, value)),
+      status,
+      description,
+    });
+
+    const estimatedTimeToFrothHours = Math.max(
+      0,
+      Number(result.estimatedTimeToFrothHours ?? 48),
+    );
+    const frothConfidence = Math.min(100, Math.max(0, Number(result.frothConfidence ?? 65)));
+    const estimatedFrothCoveragePercent = Math.min(
+      100,
+      Math.max(0, Number(result.estimatedFrothCoveragePercent ?? 20)),
+    );
+
     return {
       overallSafetyScore: Math.min(
         100,
-        Math.max(0, result.overallSafetyScore || 50),
+        Math.max(0, Number(result.overallSafetyScore ?? 50)),
       ),
       safetyStatus: result.safetyStatus || "warning",
       parameters: {
-        ph: result.parameters?.ph || {
-          value: 7,
-          status: "safe",
-          description: "Normal pH level",
-        },
-        turbidity: result.parameters?.turbidity || {
-          value: 5,
-          status: "safe",
-          description: "Clear water",
-        },
-        algaeLevel: result.parameters?.algaeLevel || {
-          value: 10,
-          status: "safe",
-          description: "Low algae presence",
-        },
-        bacteriaCount: result.parameters?.bacteriaCount || {
-          value: 100,
-          status: "safe",
-          description: "Within safe limits",
-        },
-        temperature: result.parameters?.temperature || {
-          value: 20,
-          status: "safe",
-          description: "Normal temperature",
-        },
-        contaminationRisk: result.parameters?.contaminationRisk || {
-          value: 15,
-          status: "safe",
-          description: "Low contamination risk",
-        },
+        foamCoverage:
+          result.parameters?.foamCoverage ||
+          defaultIndicator(18, "warning", "Visible pale surface streaks suggest early foam formation."),
+        algaeDensity:
+          result.parameters?.algaeDensity ||
+          defaultIndicator(44, "warning", "Bloom-like coloration can support later frothing."),
+        shorelineResidue:
+          result.parameters?.shorelineResidue ||
+          defaultIndicator(22, "safe", "Only light residue accumulation is visible near the shoreline."),
+        waterDiscoloration:
+          result.parameters?.waterDiscoloration ||
+          defaultIndicator(38, "warning", "Moderate discoloration indicates elevated biological activity."),
+        stagnationIndex:
+          result.parameters?.stagnationIndex ||
+          defaultIndicator(51, "warning", "Low circulation zones may allow froth to build up."),
+        surfaceVolatility:
+          result.parameters?.surfaceVolatility ||
+          defaultIndicator(35, "safe", "Surface texture is disturbed but not strongly unstable."),
       },
-      recommendations: result.recommendations || [
-        "Continue monitoring water quality",
-      ],
+      recommendations: result.recommendations?.length
+        ? result.recommendations
+        : [
+            "Schedule another satellite review within the next 12 hours.",
+            "Inspect likely accumulation zones near shoreline inlets and windward edges.",
+            "Prepare field confirmation if visible foam bands begin to widen.",
+          ],
       detailedAnalysis:
-        result.detailedAnalysis || "Analysis completed successfully.",
-      waterType: result.waterType || "Unknown",
+        result.detailedAnalysis ||
+        "The lake shows moderate conditions that could support frothing if bloom activity and shoreline accumulation increase. Confidence is limited to visual cues from the submitted image.",
+      waterType: result.waterType || "Lake",
       potentialContaminants: result.potentialContaminants || [],
+      frothStage: result.frothStage || "watch",
+      estimatedTimeToFrothHours,
+      estimatedTimeToFrothLabel:
+        result.estimatedTimeToFrothLabel || this.formatTimeToFrothLabel(estimatedTimeToFrothHours),
+      frothConfidence,
+      estimatedFrothCoveragePercent,
+      keyDrivers: result.keyDrivers?.length
+        ? result.keyDrivers
+        : ["surface bloom activity", "shoreline accumulation", "stagnant near-shore zones"],
     };
   }
 
-  private generateMockAnalysis(): WaterAnalysisResult {
-    // Generate realistic mock data when API is not configured
-    const safetyScore = Math.floor(Math.random() * 40) + 60; // 60-100
-    const safetyStatus =
-      safetyScore >= 80 ? "safe" : safetyScore >= 60 ? "warning" : "unsafe";
+  private formatTimeToFrothLabel(hours: number): string {
+    if (hours <= 0) return "Already frothing";
+    if (hours <= 6) return "Within 6 hours";
+    if (hours <= 24) return "Within 24 hours";
+    if (hours <= 48) return "1-2 days";
+    if (hours <= 72) return "2-3 days";
+    return "More than 3 days";
+  }
+
+  private generateMockAnalysis(
+    context?: { location?: string; notes?: string },
+  ): WaterAnalysisResult {
+    const riskScore = Math.floor(Math.random() * 45) + 45;
+    const safetyStatus: RiskStatus =
+      riskScore >= 80 ? "unsafe" : riskScore >= 55 ? "warning" : "safe";
+    const estimatedTimeToFrothHours =
+      safetyStatus === "unsafe"
+        ? Math.floor(Math.random() * 8)
+        : safetyStatus === "warning"
+          ? Math.floor(Math.random() * 36) + 8
+          : Math.floor(Math.random() * 72) + 48;
+    const frothStage =
+      estimatedTimeToFrothHours <= 2
+        ? "imminent"
+        : estimatedTimeToFrothHours <= 24
+          ? "forming"
+          : estimatedTimeToFrothHours <= 72
+            ? "watch"
+            : "stable";
 
     return {
-      overallSafetyScore: safetyScore,
-      safetyStatus: safetyStatus as "safe" | "warning" | "unsafe",
+      overallSafetyScore: riskScore,
+      safetyStatus,
       parameters: {
-        ph: {
-          value: 6.5 + Math.random() * 2,
-          status: "safe",
-          description: "pH level within acceptable range for surface water",
+        foamCoverage: {
+          value: Math.floor(Math.random() * 55),
+          status: safetyStatus === "unsafe" ? "unsafe" : "warning",
+          description: "Surface brightness patterns suggest foam-prone accumulation zones.",
         },
-        turbidity: {
-          value: Math.floor(Math.random() * 20) + 5,
-          status: Math.random() > 0.7 ? "warning" : "safe",
-          description: "Water clarity indicates moderate suspended particles",
+        algaeDensity: {
+          value: Math.floor(Math.random() * 45) + 25,
+          status: Math.random() > 0.5 ? "warning" : "unsafe",
+          description: "Bloom density appears elevated enough to support frothing episodes.",
         },
-        algaeLevel: {
-          value: Math.floor(Math.random() * 30) + 5,
-          status: Math.random() > 0.8 ? "warning" : "safe",
-          description: "Algae concentration at acceptable levels",
+        shorelineResidue: {
+          value: Math.floor(Math.random() * 60),
+          status: Math.random() > 0.6 ? "warning" : "safe",
+          description: "Residue bands near the edge indicate possible transport and buildup.",
         },
-        bacteriaCount: {
-          value: Math.floor(Math.random() * 500) + 50,
-          status: Math.random() > 0.7 ? "warning" : "safe",
-          description: "Bacterial levels within safety guidelines",
+        waterDiscoloration: {
+          value: Math.floor(Math.random() * 50) + 20,
+          status: Math.random() > 0.6 ? "warning" : "safe",
+          description: "Color variation points to concentrated surface activity.",
         },
-        temperature: {
-          value: Math.floor(Math.random() * 15) + 15,
-          status: "safe",
-          description: "Temperature suitable for aquatic life",
+        stagnationIndex: {
+          value: Math.floor(Math.random() * 50) + 30,
+          status: safetyStatus === "safe" ? "safe" : "warning",
+          description: "Low-flow pockets could trap floating organic matter.",
         },
-        contaminationRisk: {
-          value: Math.floor(Math.random() * 25) + 5,
-          status: Math.random() > 0.8 ? "warning" : "safe",
-          description: "Low contamination risk detected",
+        surfaceVolatility: {
+          value: Math.floor(Math.random() * 50) + 10,
+          status: Math.random() > 0.7 ? "unsafe" : "warning",
+          description: "Surface texture shows mixed calm slicks and accumulation streaks.",
         },
       },
       recommendations: [
-        "Regular monitoring recommended for this water source",
-        "Consider filtration before any recreational use",
-        "Test for specific contaminants if water is used for consumption",
-        "Monitor seasonal changes in water quality",
+        "Review the same lake sector with fresh imagery later today.",
+        "Prioritize field checks near shoreline accumulation zones.",
+        "Track bloom expansion and wind-driven concentration before public alerts.",
       ],
-      detailedAnalysis:
-        "The water sample shows characteristics consistent with natural surface water. Visual analysis indicates moderate clarity with some suspended particles. The coloration suggests minimal algae growth and acceptable organic matter levels.",
-      waterType: "Surface water (lake/pond)",
-      potentialContaminants: [
-        "Organic matter",
-        "Sediment particles",
-        "Natural minerals",
-      ],
+      detailedAnalysis: `The image suggests a ${
+        safetyStatus === "unsafe" ? "high" : safetyStatus === "warning" ? "moderate" : "low"
+      } near-term frothing risk for this lake. Visible surface texture, discoloration, and accumulation bands indicate ${
+        frothStage === "imminent"
+          ? "frothing may already be underway or about to start"
+          : "conditions that could intensify into frothing if the current pattern persists"
+      }. ${
+        context?.location ? `This estimate is anchored to the reported location: ${context.location}.` : ""
+      }`,
+      waterType: "Satellite-observed lake",
+      potentialContaminants: ["nutrient-rich runoff", "algal bloom biomass", "organic shoreline buildup"],
+      frothStage,
+      estimatedTimeToFrothHours,
+      estimatedTimeToFrothLabel: this.formatTimeToFrothLabel(estimatedTimeToFrothHours),
+      frothConfidence: Math.floor(Math.random() * 21) + 65,
+      estimatedFrothCoveragePercent: Math.floor(Math.random() * 45) + 10,
+      keyDrivers: ["bloom concentration", "surface stagnation", "shoreline accumulation"],
     };
   }
 }

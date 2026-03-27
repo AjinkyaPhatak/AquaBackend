@@ -30,7 +30,14 @@ export class WaterAnalysisService {
     const mimeType = file.mimetype;
 
     // Analyze with Gemini
-    const analysisResult = await this.geminiService.analyzeWaterImage(imageBase64, mimeType);
+    const analysisResult = await this.geminiService.analyzeWaterImage(
+      imageBase64,
+      mimeType,
+      {
+        location: createDto.location,
+        notes: createDto.notes,
+      },
+    );
 
     // Save the image
     const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -53,6 +60,12 @@ export class WaterAnalysisService {
       detailedAnalysis: analysisResult.detailedAnalysis,
       waterType: analysisResult.waterType,
       potentialContaminants: analysisResult.potentialContaminants,
+      frothStage: analysisResult.frothStage,
+      estimatedTimeToFrothHours: analysisResult.estimatedTimeToFrothHours,
+      estimatedTimeToFrothLabel: analysisResult.estimatedTimeToFrothLabel,
+      frothConfidence: analysisResult.frothConfidence,
+      estimatedFrothCoveragePercent: analysisResult.estimatedFrothCoveragePercent,
+      keyDrivers: analysisResult.keyDrivers,
       location: createDto.location || '',
       notes: createDto.notes || '',
     });
