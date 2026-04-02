@@ -27,8 +27,9 @@ export class WaterAnalysisController {
   @UseInterceptors(FileInterceptor('image', {
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
     fileFilter: (req, file, cb) => {
-      if (!file.mimetype.match(/^image\/(jpeg|png|gif|webp)$/)) {
+      if (!file.mimetype.match(/^image\/(jpeg|png|gif|webp|tiff|bmp|x-icon|vnd\.microsoft\.icon)$/)) {
         cb(new Error('Only image files are allowed'), false);
+        return;
       }
       cb(null, true);
     },

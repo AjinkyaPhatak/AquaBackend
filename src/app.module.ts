@@ -5,7 +5,6 @@ import { FirebaseModule } from "./firebase/firebase.module";
 import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/users.module";
 import { WaterAnalysisModule } from "./water-analysis/water-analysis.module";
-import { GeminiModule } from "./gemini/gemini.module";
 
 @Module({
   imports: [
@@ -31,7 +30,6 @@ import { GeminiModule } from "./gemini/gemini.module";
     AuthModule,
     UsersModule,
     WaterAnalysisModule,
-    GeminiModule,
   ],
 })
 export class AppModule {}

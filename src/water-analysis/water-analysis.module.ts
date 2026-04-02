@@ -5,7 +5,6 @@ import { memoryStorage } from 'multer';
 import { WaterAnalysisService } from './water-analysis.service';
 import { WaterAnalysisController } from './water-analysis.controller';
 import { WaterAnalysis, WaterAnalysisSchema } from './schemas/water-analysis.schema';
-import { GeminiModule } from '../gemini/gemini.module';
 import { UsersModule } from '../users/users.module';
 
 @Module({
@@ -14,7 +13,6 @@ import { UsersModule } from '../users/users.module';
     MulterModule.register({
       storage: memoryStorage(),
     }),
-    GeminiModule,
     UsersModule,
   ],
   controllers: [WaterAnalysisController],
