@@ -66,15 +66,14 @@ export class AuthService {
   }
 
   async googleLogin(idToken: string) {
+    return this.firebaseLogin(idToken);
+  }
+
+  async firebaseLogin(idToken: string) {
     // verify the token with firebase
     const decoded = await this.firebaseService.verifyIdToken(idToken);
     if (!decoded || !decoded.email) {
       throw new UnauthorizedException("Invalid Firebase token");
-    }
-
-    // ensure email is verified (optional but good practice)
-    if (!decoded.email_verified) {
-      throw new UnauthorizedException("Email not verified by provider");
     }
 
     // lookup or create the user locally

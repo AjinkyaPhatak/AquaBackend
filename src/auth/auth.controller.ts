@@ -19,6 +19,16 @@ export class AuthController {
     return this.authService.googleLogin(dto.idToken);
   }
 
+  @Post("firebase/login")
+  async firebaseLogin(@Body() dto: GoogleLoginDto) {
+    return this.authService.firebaseLogin(dto.idToken);
+  }
+
+  @Post("firebase/register")
+  async firebaseRegister(@Body() dto: GoogleLoginDto) {
+    return this.authService.firebaseLogin(dto.idToken);
+  }
+
   @Post("register")
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
