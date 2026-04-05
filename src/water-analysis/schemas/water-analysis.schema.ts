@@ -62,6 +62,18 @@ export class WaterAnalysis {
 
   @Prop({ default: '' })
   notes: string;
+
+  @Prop({ default: '' })
+  mlPredictionLabel: string;
+
+  @Prop({ default: '' })
+  mlPredictedClass: string;
+
+  @Prop({ default: 0 })
+  mlConfidence: number;
+
+  @Prop({ type: Object, default: {} })
+  mlProbabilities: Record<string, number>;
 }
 
 export const WaterAnalysisSchema = SchemaFactory.createForClass(WaterAnalysis);

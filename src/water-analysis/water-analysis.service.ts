@@ -9,6 +9,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 type RiskPredictionLabel = 'Low Risk' | 'Medium Risk' | 'High Risk';
+type RiskPredictionClass = 'low' | 'medium' | 'high';
+
+type MlPredictionResult = {
+  prediction: RiskPredictionLabel;
+  predictedClass: RiskPredictionClass;
+  confidence: number;
+  probabilities: Record<string, number>;
+};
 
 type WaterAnalysisResult = {
   overallSafetyScore: number;
@@ -31,6 +39,10 @@ type WaterAnalysisResult = {
   frothConfidence: number;
   estimatedFrothCoveragePercent: number;
   keyDrivers: string[];
+  mlPredictionLabel: RiskPredictionLabel;
+  mlPredictedClass: RiskPredictionClass;
+  mlConfidence: number;
+  mlProbabilities: Record<string, number>;
 };
 
 @Injectable()
@@ -79,6 +91,10 @@ export class WaterAnalysisService {
       frothConfidence: analysisResult.frothConfidence,
       estimatedFrothCoveragePercent: analysisResult.estimatedFrothCoveragePercent,
       keyDrivers: analysisResult.keyDrivers,
+      mlPredictionLabel: analysisResult.mlPredictionLabel,
+      mlPredictedClass: analysisResult.mlPredictedClass,
+      mlConfidence: analysisResult.mlConfidence,
+      mlProbabilities: analysisResult.mlProbabilities,
       location: createDto.location || '',
       notes: createDto.notes || '',
     });
@@ -91,7 +107,7 @@ export class WaterAnalysisService {
     return saved;
   }
 
-  private async predictRisk(file: Express.Multer.File): Promise<RiskPredictionLabel> {
+  private async predictRisk(file: Express.Multer.File): Promise<MlPredictionResult> {
     const mlServiceUrl =
       this.configService.get<string>('ML_SERVICE_URL') || 'http://localhost:8000/predict';
 
@@ -113,20 +129,32 @@ export class WaterAnalysisService {
       throw new BadRequestException('Local ML prediction failed');
     }
 
-    const payload = (await response.json()) as { prediction?: RiskPredictionLabel };
-    if (!payload.prediction) {
+    const payload = (await response.json()) as {
+      prediction?: RiskPredictionLabel;
+      predicted_class?: RiskPredictionClass;
+      confidence?: number;
+      probabilities?: Record<string, number>;
+    };
+    if (!payload.prediction || !payload.predicted_class) {
       throw new BadRequestException('Local ML service returned an invalid prediction');
     }
 
-    return payload.prediction;
+    return {
+      prediction: payload.prediction,
+      predictedClass: payload.predicted_class,
+      confidence: payload.confidence ?? 0,
+      probabilities: payload.probabilities ?? {},
+    };
   }
 
   private buildAnalysisResult(
-    prediction: RiskPredictionLabel,
+    mlResult: MlPredictionResult,
     createDto: CreateAnalysisDto,
   ): WaterAnalysisResult {
+    const prediction = mlResult.prediction;
     const notes = createDto.notes?.trim();
     const location = createDto.location?.trim();
+    const roundedConfidence = Math.max(0, Math.min(100, Math.round(mlResult.confidence)));
 
     const profiles: Record<RiskPredictionLabel, WaterAnalysisResult> = {
       'Low Risk': {
@@ -175,9 +203,13 @@ export class WaterAnalysisService {
         frothStage: 'stable',
         estimatedTimeToFrothHours: 72,
         estimatedTimeToFrothLabel: '3+ days',
-        frothConfidence: 84,
+        frothConfidence: roundedConfidence || 84,
         estimatedFrothCoveragePercent: 8,
         keyDrivers: ['Low-risk land-cover class', 'Limited visible residue', 'Lower stagnation signature'],
+        mlPredictionLabel: prediction,
+        mlPredictedClass: mlResult.predictedClass,
+        mlConfidence: roundedConfidence,
+        mlProbabilities: mlResult.probabilities,
       },
       'Medium Risk': {
         overallSafetyScore: 61,
@@ -225,9 +257,13 @@ export class WaterAnalysisService {
         frothStage: 'watch',
         estimatedTimeToFrothHours: 36,
         estimatedTimeToFrothLabel: '1-2 days',
-        frothConfidence: 72,
+        frothConfidence: roundedConfidence || 72,
         estimatedFrothCoveragePercent: 24,
         keyDrivers: ['Moderate-risk land-cover class', 'Noticeable shoreline residue', 'Elevated stagnation signature'],
+        mlPredictionLabel: prediction,
+        mlPredictedClass: mlResult.predictedClass,
+        mlConfidence: roundedConfidence,
+        mlProbabilities: mlResult.probabilities,
       },
       'High Risk': {
         overallSafetyScore: 28,
@@ -276,9 +312,13 @@ export class WaterAnalysisService {
         frothStage: 'imminent',
         estimatedTimeToFrothHours: 12,
         estimatedTimeToFrothLabel: 'Within 12 hours',
-        frothConfidence: 86,
+        frothConfidence: roundedConfidence || 86,
         estimatedFrothCoveragePercent: 57,
         keyDrivers: ['High-risk land-cover class', 'Severe stagnation signature', 'Strong contamination indicators'],
+        mlPredictionLabel: prediction,
+        mlPredictedClass: mlResult.predictedClass,
+        mlConfidence: roundedConfidence,
+        mlProbabilities: mlResult.probabilities,
       },
     };
 
@@ -288,7 +328,10 @@ export class WaterAnalysisService {
 
     return {
       ...baseProfile,
-      detailedAnalysis: `${baseProfile.detailedAnalysis}${locationSuffix}${notesSuffix}`,
+      detailedAnalysis:
+        `${baseProfile.detailedAnalysis} Model confidence for this risk label: ${roundedConfidence}%.` +
+        locationSuffix +
+        notesSuffix,
     };
   }
 
